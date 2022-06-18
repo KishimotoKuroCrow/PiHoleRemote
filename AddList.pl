@@ -4,10 +4,12 @@ use strict;
 use warnings;
 use POSIX qw/strftime/;
 use Getopt::Long;
+use Env '@PATH';
 
 $SIG{"INT"} = \&CleanExit;
 my $ScriptName = $0;
 my $__DEBUG__ = 0;
+my $execfile = 'sqlite3';
 
 # =========================
 #  Function Prototypes
@@ -69,6 +71,14 @@ sub CleanExit()
 #  Main Function
 sub main()
 {
+   # Verify that the executable exists
+   my $execfile_exists = grep -x "$_/$execfile", @PATH;
+   if( not $execfile_exists )
+   {
+      print STDOUT "** \"$execfile\" cannot be found. Please install it first. **\n";
+      CleanExit();
+   }
+
    # Get the options and validate
    my %options;
    GetOptions(
@@ -95,7 +105,7 @@ sub main()
       # Go through the list of sites for sql.
       if(not (($fileline =~ /^#/) or ($fileline =~ /^ *$/)) )
       {
-         $cmdline = "sqlite3 /etc/pihole/gravity.db \"INSERT or IGNORE into adlist (address, enabled, comment) VALUES ('$fileline', 1, 'comment');\"";
+         $cmdline = "$execfile /etc/pihole/gravity.db \"INSERT or IGNORE into adlist (address, enabled, comment) VALUES ('$fileline', 1, 'comment');\"";
 
          print STDOUT "Executing \"$cmdline\"\n";
          if( $__DEBUG__ eq 0 ) 
