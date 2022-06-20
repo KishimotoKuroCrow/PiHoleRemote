@@ -8,11 +8,14 @@ use Env '@PATH';
 
 $SIG{"INT"} = \&CleanExit;
 my $ScriptName = $0;
-my $__DEBUG__ = 0;
-my $execfile = 'sqlite3';
+my $__DEBUG__  = 0;
+my $execfile   = 'sqlite3';
+my $piexecfile = 'pihole';
 
 # =========================
 #  Function Prototypes
+sub SysCmdToPush( $ );
+sub RunSysCmd( $ );
 sub PathDirectory( $ );
 sub GetDateTime();
 sub CleanExit();
@@ -68,53 +71,117 @@ sub CleanExit()
 
 
 # =========================================
-#  Main Function
-sub main()
+#  Returns the array of system commands to execute
+sub SysCmdToPush( $ )
 {
-   # Verify that the executable exists
-   my $execfile_exists = grep -x "$_/$execfile", @PATH;
-   if( not $execfile_exists )
-   {
-      print STDOUT "** \"$execfile\" cannot be found. Please install it first. **\n";
-      CleanExit();
-   }
-
-   # Get the options and validate
-   my %options;
-   GetOptions(
-      "l=s" => \$options{'l'}, # List of remote domains/sites to block
-   );
-
-   if( not defined $options{'l'} )
-   {
-      die "Error: option '-l' not defined\n";
-   }
+   my( $File ) = @_;
+   my @SysCmd  = ();
 
    # Get the file and get the full list
-   my $fileline = "";
-   my $cmdline  = "";
-   open( INPUTF, "<$options{'l'}" );
+   my $fileline   = "";
+   my $cmdline    = "";
+   my $CmdIteration = 0;
+
+   # Make sure the file exists and is not empty
+   if( !(-s $File ) )
+   {
+      print STDOUT "$ScriptName: \"$File\" does not exist or is empty.\n";
+      return @SysCmd;
+   }
+
+   # Open the file and start processing.
+   open( INPUTF, "<$File" );
    while( $fileline = <INPUTF> )
    {
       chomp( $fileline );
       if( $__DEBUG__ eq 1 )
       {
-         print STDOUT "$ScriptName: - File line: \"$fileline\"\n";
+         print STDOUT "$ScriptName: - $File, line: \"$fileline\".\n";
       }
 
       # Go through the list of sites for sql.
       if(not (($fileline =~ /^#/) or ($fileline =~ /^ *$/)) )
       {
          $cmdline = "$execfile /etc/pihole/gravity.db \"INSERT or IGNORE into adlist (address, enabled, comment) VALUES ('$fileline', 1, 'comment');\"";
-
-         print STDOUT "Executing \"$cmdline\"\n";
-         if( $__DEBUG__ eq 0 ) 
-         {
-            system( "$cmdline" );
-         }
+         push @SysCmd, $cmdline;
       }
    }
+   $CmdIteration = scalar @SysCmd;
+   if( $__DEBUG__ eq 1 )
+   {
+      print STDOUT "$ScriptName: $File has $CmdIteration remote hosts files.\n";
+   }
+
+   # Not necessary, just a precaution.
+   $CmdIteration = 0;
    close( INPUTF );
+
+   return @SysCmd;
+}
+
+
+# =========================================
+#  Function to run the system commands
+sub RunSysCmd( $ )
+{
+   my( $InCmdArray ) = @_;
+   my @AllCmd = @{$InCmdArray};
+
+   # "One condition -> loop" rather than extra
+   # conditional verification at every iteration:
+   if( $__DEBUG__ eq 1 )
+   {
+      # Uncomment below to see the command that will be
+      # executed when not in debug mode
+      # -----------------------------------------
+      foreach my $ThisCmd( @AllCmd )
+      {
+         print STDOUT "system( \"$ThisCmd\" )\n";
+      }
+   }
+   else
+   {
+      foreach my $ThisCmd( @AllCmd )
+      {
+         system( "$ThisCmd" );
+      }
+   }
+}
+
+
+# =========================================
+#  Main Function
+sub main()
+{
+   # Verify that the executables exist
+   my $execfile_exists = grep -x "$_/$execfile", @PATH;
+   if( not $execfile_exists )
+   {
+      print STDOUT "** \"$execfile\" cannot be found. Please install it first. **\n";
+      CleanExit();
+   }
+   $execfile_exists = grep -x "$_/$piexecfile", @PATH;
+   if( not $execfile_exists )
+   {
+      print STDOUT "** \"$piexecfile\" cannot be found. Please install it first. **\n";
+      CleanExit();
+   }
+
+   # Parse through the files
+   my @AllCmdToExec = ();
+   my @CmdArray = ();
+   foreach my $TmpFile( @ARGV )
+   {
+      @CmdArray = ();
+      @CmdArray = SysCmdToPush( $TmpFile );
+      push @AllCmdToExec, @CmdArray;
+   }
+
+   # Refresh PiHole with the updated lists
+   push @AllCmdToExec, "$piexecfile -g";
+
+   # Execute all the commands
+   RunSysCmd( \@AllCmdToExec );
 
    CleanExit();
 }
